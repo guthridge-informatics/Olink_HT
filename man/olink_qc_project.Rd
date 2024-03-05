@@ -4,10 +4,10 @@
 \alias{olink_qc_project}
 \title{olink_qc_project}
 \usage{
-olink_qc_project(file)
+olink_qc_project(npx_file)
 }
 \arguments{
-\item{file}{}
+\item{npx_file}{}
 }
 \description{
 olink_qc_project

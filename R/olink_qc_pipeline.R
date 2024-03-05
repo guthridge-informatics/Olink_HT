@@ -152,10 +152,10 @@ post_comb <- function(data_olink) {
 
 
 ### HERE IS WHERE THE ISSUE IS ####
-# Input single parquet file or list of parquet files that need to be qc'd
+# Input single parquet file or list of parquet npx_files that need to be qc'd
 #' olink_qc_run
 #'
-#' @param file
+#' @param npx_file
 #'
 #' @importFrom arrow open_dataset read_parquet write_parquet
 #' @importFrom dplyr filter
@@ -165,29 +165,33 @@ post_comb <- function(data_olink) {
 #' @export
 #'
 #' @examples
-olink_qc_run <- function(file){
+olink_qc_run <- function(npx_file){
 
-  if (length(file) > 1) {
+  message(stringr::str_glue("Found {length(npx_file)} parquet files..."))
+  if (length(npx_file) > 1) {
     message("Multiple Olink HT runs detected")
     colname_list <- lapply(
-      X = file,
+      X = npx_file,
       FUN = \(y) arrow::open_dataset(y)$schema$names
       )
     colname_list_len <- length(unique(lapply(colname_list, \(x) sort(toupper(x)))))
-
     if (colname_list_len != 1) {
       warning("File columns do not match. Check parquet files for differences")
     }
+
+    message("Reading files...")
     single_dat <-
       lapply(
-        X = file,
+        X = npx_file,
         FUN = arrow::read_parquet
         )
+    message("Filtering...")
     filter_dat <-
       lapply(
         X = single_dat,
         FUN = \(y) dplyr::filter(y, !is.na(ExtNPX))
         )
+    message("Scaling...")
     scaled_dat <-
       lapply(
         X = filter_dat,
@@ -195,30 +199,35 @@ olink_qc_run <- function(file){
         )
 
     # Calculating LLOD and LLOQ based on negative control values
+    message("Calculating LLOD and LLOQ values...")
     pre_comb_dat <-
       lapply(
         X = scaled_dat,
         FUN = pre_comb
         )
+    message("Writing QC'ed files to disk...")
     purrr::imap(
       .x = pre_comb_dat,
       .f = \(x, i) {
         arrow::write_parquet(
           x = x,
-          sink = paste0("Run_Specific_QC_", name(file[[i]]), ".parquet"))
+          sink = paste0("Run_Specific_QC_", stringr::str_split_i(string = npx_file[[i]], pattern = "/", i = -1) |> stringr::str_remove(pattern=".parquet"), ".parquet"))
       }
     )
 
-  } else if (length(file) == 1) {
-    message("1 Olink HT run detected")
-    dat <- arrow::read_parquet(file)
+  } else if (length(npx_file) == 1) {
+    message("Single Olink HT run detected")
+    dat <- arrow::read_parquet(npx_file)
+    message("Filtering...")
     filter_dat <-
       dplyr::filter(
         dat,
         is.na(ExtNPX) == FALSE
         )
+    message("Scaling...")
     scaled_dat <-
       Olink_Intensity_Norm(data_olink = filter_dat)
+    message("")
     pre_comb_dat <-
       pre_comb(data_olink = scaled_dat)
   } else (
@@ -232,7 +241,7 @@ olink_qc_run <- function(file){
 
 #' olink_qc_project
 #'
-#' @param file
+#' @param npx_file
 #'
 #' @importFrom dplyr bind_rows
 #'
@@ -240,11 +249,11 @@ olink_qc_run <- function(file){
 #' @export
 #'
 #' @examples
-olink_qc_project <- function(file){
+olink_qc_project <- function(npx_file){
   comb_dat <- dplyr::bind_rows(pre_comb_dat)
   post_comb(comb_dat)
 }
 
-# dat <- olink_qc_run(file = c("\\\\data/ADI/Phenotyping_Core/01_Instrumentation/Olink_HT/01_Data/2024-02-07_AMP_SLE/AMP_SLE_1-2_NPX_2024-02-07.parquet",
+# dat <- olink_qc_run(npx_file = c("\\\\data/ADI/Phenotyping_Core/01_Instrumentation/Olink_HT/01_Data/2024-02-07_AMP_SLE/AMP_SLE_1-2_NPX_2024-02-07.parquet",
 #                          "\\\\data/ADI/Phenotyping_Core/01_Instrumentation/Olink_HT/01_Data/2024-02-07_AMP_SLE/AMP_SLE_3-4_NPX_2024-02-07.parquet",
 #                          "\\\\data/ADI/Phenotyping_Core/01_Instrumentation/Olink_HT/01_Data/2024-02-07_AMP_SLE/AMP_SLE_5-6_NPX_2024-02-12.parquet"))

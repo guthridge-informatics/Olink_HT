@@ -4,10 +4,10 @@
 \alias{olink_qc_run}
 \title{olink_qc_run}
 \usage{
-olink_qc_run(file)
+olink_qc_run(npx_file)
 }
 \arguments{
-\item{file}{}
+\item{npx_file}{}
 }
 \description{
 olink_qc_run
