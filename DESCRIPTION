@@ -1,21 +1,28 @@
-Package: OlinkHT
-Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9000
+Package: OlinkHTQC
+Title: Perform initial quality control and processing steps for Olink HT data
+Version: 0.0.93
 Authors@R: 
     person("Ben", "Jones", , "ben-jones@omrf.org", role = c("aut", "cre"))
-Description: What the package does (one paragraph).
+    person("Rufei", "Lu", , "rufei-lu@omrf.org", role = c("aut", "cre"))
+    person("Miles", "Smith", , "miles-smith@omrf.org", role = c("aut", "cre"))
+Description: Perform initial quality control and processing steps for Olink HT data.
 License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
     license
-Url: https://github.com/guthridge-informatics/OlinkHT
-BugReports: https://github.com/guthridge-informatics/OlinkHT/issues
+Url: https://github.com/guthridge-informatics/OlinkHTQC
+BugReports: https://github.com/guthridge-informatics/OlinkHTQC/issues
 Depends: R (>= 4.1.0)
 Imports:
-  dplyr,
-  arrow,
-  tidyr,
-  stats,
-  purrr,
-  pathwayviewr
+    dplyr,
+    arrow,
+    tidyr,
+    stats,
+    purrr,
+    pathwayviewr,
+    uwot,
+    irlba,
+    tidyselect,
+    tibble,
+    rlang
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.1

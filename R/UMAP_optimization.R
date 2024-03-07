@@ -2,29 +2,66 @@
 require(gridExtra) # needed for the grid plot arrangement
 require(pathviewr) # needed for find_curve_elbow for PCA post hoc analysis
 
-# This function automatically find the best PCA dimensional cut-off for the subsequent UMAP
-#' Title
+#' optimized_pca
 #'
-#' @param data
+#' @description
+#' Determine the optimal number of principal components for a given set of data
+#' and return the principal component values for just those PCs
+#'
+#'
+#' @param data A wide
+#'
+#' @importFrom irlba prcomp_irlba
+#' @importFrom dplyr mutate row_number select
+#' @importFrom tibble as_tibble column_to_rownames
+#' @importFrom pathviewr find_curve_elbow
+#' @importFrom tidyselect num_range
+#' @importFrom rlang `%||%`
 #'
 #' @return
 #' @export
 #'
 #' @examples
-pca_to_umap <- function(data){
-  # calculate the principal components
-  pca <- prcomp(data, scale. = TRUE, center = TRUE)
+optimized_pca <- function(data, num_pcs=10) {
+  num_pcs <- num_pcs %||% ncol(data)
+
+  pca_res <- irlba::prcomp_irlba(data, n = num_pcs, scale. = TRUE, center = TRUE)
+
   # get PCA importance from the principal component analysis
-  res_pca <- summary(pca)$importance %>% t() %>% data.frame %>% mutate(PCs = c(1:nrow(.)))
-  n_pca <- find_curve_elbow(data_frame = res_pca[, c("PCs", "Proportion.of.Variance")], plot_curve = TRUE)
-  pca <-
-    pca$x[, c(1:n_pca)] %>%
-    data.frame()
-  return(pca)
+  res_pca <- summary(pca_res)[["importance"]] |>
+    t() |>
+    tibble::as_tibble() |>
+    dplyr::mutate(PCs = dplyr::row_number())
+  n_pcs <-
+    pathviewr::find_curve_elbow(
+      data_frame =
+        dplyr::select(
+          .data = res_pca,
+          PCs,
+          `Proportion of Variance`
+          ),
+      plot_curve = TRUE
+      )
+  pca_res |>
+    purrr::pluck("x") |>
+    tibble::as_tibble() |>
+    dplyr::select(
+      tidyselect::num_range(
+        prefix = "PC",
+        range = seq(n_pcs)
+        )
+    ) |>
+    dplyr::mutate(sample = rownames(data)) |>
+    tibble::column_to_rownames(sample)
 }
 
-# Optimization function for n_neighbors by setting the spread = 10, min_dist = 0.1 as default by can be changed as needed
-#' Title
+
+#' optimize_n_neighbor
+#'
+#' @description
+#' Optimization function for n_neighbors by setting the spread = 10,
+#' min_dist = 0.1 as default by can be changed as needed
+#'
 #'
 #' @param data
 #' @param groups
@@ -38,11 +75,25 @@ pca_to_umap <- function(data){
 #' @export
 #'
 #' @examples
-optimize_n_neighbor <- function(data, groups, spread = 10, min_dist = 0.1, min = 5, max = 16, step = 1) {
+optimize_n_neighbor <- function(
+    data,
+    groups,
+    spread = 10,
+    min_dist = 0.1,
+    min = 5,
+    max = 16,
+    step = 1
+    ) {
   plots <- list()
   counter <- 1
   for (n_neighbors in seq(min, max, step)) {
-    umap_cyto <- umap(data, spread = spread, min_dist = min_dist, n_neighbors = n_neighbors, random_state = 123)
+    umap_cyto <- uwot::umap(
+      X = data,
+      spread = spread,
+      min_dist = min_dist,
+      n_neighbors = n_neighbors,
+      seed = 123
+      )
     dat_umap <- umap_cyto$layout %>% data.frame()
     colnames(dat_umap) <- c("UMAP1", "UMAP2")
     # graph the umap plot
@@ -52,7 +103,7 @@ optimize_n_neighbor <- function(data, groups, spread = 10, min_dist = 0.1, min =
       ggtitle(paste0("n_neighbor = ", n_neighbors)) +
       theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
     plots[[counter]] <- plot_0
-    counter = counter + 1
+    counter <- counter + 1
   }
   grid.arrange(grobs = plots, ncol = 4)
 }
@@ -72,7 +123,7 @@ optimize_n_neighbor <- function(data, groups, spread = 10, min_dist = 0.1, min =
 #' @export
 #'
 #' @examples
-optimize_spread <- function(data, groups, n_neighbor, min_dist = 0.1, min = 1, max=15, step = 1){
+optimize_spread <- function(data, groups, n_neighbor, min_dist = 0.1, min = 1, max = 15, step = 1) {
   # spread
   plots <- list()
   counter <- 1
@@ -87,7 +138,7 @@ optimize_spread <- function(data, groups, n_neighbor, min_dist = 0.1, min = 1, m
       ggtitle(paste0("spread = ", spread)) +
       theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
     plots[[counter]] <- plot_0
-    counter = counter + 1
+    counter <- counter + 1
   }
   grid.arrange(grobs = plots, ncol = 4)
 }
@@ -107,7 +158,7 @@ optimize_spread <- function(data, groups, n_neighbor, min_dist = 0.1, min = 1, m
 #' @export
 #'
 #' @examples
-optimize_min_dist <- function(data, groups, spread, n_neighbor, min = 0.01, max = 0.5, step = 0.03){
+optimize_min_dist <- function(data, groups, spread, n_neighbor, min = 0.01, max = 0.5, step = 0.03) {
   plots <- list()
   counter <- 1
   for (min_dist in seq(min, max, step)) {
@@ -121,7 +172,7 @@ optimize_min_dist <- function(data, groups, spread, n_neighbor, min = 0.01, max 
       ggtitle(paste0("min_dst = ", min_dist)) +
       theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
     plots[[counter]] <- plot_0
-    counter = counter + 1
+    counter <- counter + 1
   }
   grid.arrange(grobs = plots, ncol = 4)
 }
@@ -151,16 +202,16 @@ pub_UMAP <- function(data, groups, arrow_size = 0.1, pt.size = 3, arrowtip_size 
     geom_point(aes(color = groups), size = 4) +
     theme_void()
   # y-range
-  yrange = layer_scales(p)$y$range$range
+  yrange <- layer_scales(p)$y$range$range
   # x-range
-  xrange = layer_scales(p)$x$range$range
+  xrange <- layer_scales(p)$x$range$range
   p <- p +
     theme(legend.title = element_blank()) +
-    geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1], yend = yrange[1] + (yrange[2]-yrange[1])*arrow_size, size = 0.8, arrow = arrow(length = unit(arrowtip_size,"mm"), type = "closed")) +
+    geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1], yend = yrange[1] + (yrange[2] - yrange[1]) * arrow_size, size = 0.8, arrow = arrow(length = unit(arrowtip_size, "mm"), type = "closed")) +
     geom_text(aes(x = xrange[1] + 0.2, y = yrange[1], label = "UMAP1"), hjust = 0, vjust = 1, size = 4) +
-    geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1] + (xrange[2]-xrange[1])*arrow_size, yend = yrange[1], size = 0.8,  arrow = arrow(length = unit(arrowtip_size,"mm"), type = "closed")) +
+    geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1] + (xrange[2] - xrange[1]) * arrow_size, yend = yrange[1], size = 0.8, arrow = arrow(length = unit(arrowtip_size, "mm"), type = "closed")) +
     geom_text(aes(x = xrange[1] - 0.6, y = yrange[1], label = "UMAP2"), angle = 90, hjust = 0, vjust = 1, size = 4) +
-    guides(colour = guide_legend(ncol = 1, label.theme = element_text(face = "bold", size = label.size),override.aes = list(size = 6))) +
+    guides(colour = guide_legend(ncol = 1, label.theme = element_text(face = "bold", size = label.size), override.aes = list(size = 6))) +
     ggtitle(label = "")
   return(p)
 }
