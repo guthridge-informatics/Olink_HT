@@ -151,7 +151,7 @@ post_comb <- function(data_olink) {
 }
 
 
-### HERE IS WHERE THE ISSUE IS ####
+
 # Input single parquet file or list of parquet npx_files that need to be qc'd
 #' olink_qc_run
 #'
@@ -171,7 +171,7 @@ olink_qc_run <- function(npx_file) {
     message("Multiple Olink HT runs detected")
     colname_list <- lapply(
       X = npx_file,
-      FUN = \(y) arrow::open_dataset(y)$schema$names
+      FUN = \(y) arrow::open_dataset(y)[["schema"]][["names"]]
     )
     colname_list_len <- length(unique(lapply(colname_list, \(x) sort(toupper(x)))))
     if (colname_list_len != 1) {
@@ -210,7 +210,18 @@ olink_qc_run <- function(npx_file) {
       .f = \(x, i) {
         arrow::write_parquet(
           x = x,
-          sink = paste0("Run_Specific_QC_", stringr::str_split_i(string = npx_file[[i]], pattern = "/", i = -1) |> stringr::str_remove(pattern = ".parquet"), ".parquet")
+          sink = paste0(
+            "Run_Specific_QC_",
+            stringr::str_split_i(
+              string = npx_file[[i]],
+              pattern = "/",
+              i = -1
+              ) |>
+              stringr::str_remove(
+                pattern = ".parquet"
+                ),
+            ".parquet"
+            )
         )
       }
     )

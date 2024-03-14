@@ -1,6 +1,6 @@
 Package: OlinkHTQC
 Title: Perform initial quality control and processing steps for Olink HT data
-Version: 0.0.93
+Version: 0.0.94
 Authors@R: 
     person("Ben", "Jones", , "ben-jones@omrf.org", role = c("aut", "cre"))
     person("Rufei", "Lu", , "rufei-lu@omrf.org", role = c("aut", "cre"))
@@ -17,12 +17,13 @@ Imports:
     tidyr,
     stats,
     purrr,
-    pathwayviewr,
-    uwot,
+    pathviewr,
+    umap,
     irlba,
     tidyselect,
     tibble,
-    rlang
+    rlang,
+    cowplot
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.1

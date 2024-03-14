@@ -1,6 +1,4 @@
 ## This module is made to better optimize the UMAP visualization for any omics
-require(gridExtra) # needed for the grid plot arrangement
-require(pathviewr) # needed for find_curve_elbow for PCA post hoc analysis
 
 #' optimized_pca
 #'
@@ -23,6 +21,7 @@ require(pathviewr) # needed for find_curve_elbow for PCA post hoc analysis
 #'
 #' @examples
 optimized_pca <- function(data, num_pcs=10) {
+
   num_pcs <- num_pcs %||% ncol(data)
 
   pca_res <- irlba::prcomp_irlba(data, n = num_pcs, scale. = TRUE, center = TRUE)
@@ -55,6 +54,8 @@ optimized_pca <- function(data, num_pcs=10) {
     tibble::column_to_rownames(sample)
 }
 
+# TODO: combine the three optimize functions and just switch the title/optimizing
+# ranges since the code is nearly identical
 
 #' optimize_n_neighbor
 #'
@@ -71,6 +72,14 @@ optimized_pca <- function(data, num_pcs=10) {
 #' @param max
 #' @param step
 #'
+#' @importFrom rlang enquo
+#' @importFrom dplyr select rename
+#' @importFrom purrr map pluck
+#' @importFrom tibble as_tibble
+#' @importFrom umap umap
+#' @importFrom ggplot2 ggplot aes geom_point theme_classic ggtitle theme element_text
+#' @importFrom cowplot plot_grid
+#'
 #' @return
 #' @export
 #'
@@ -84,32 +93,63 @@ optimize_n_neighbor <- function(
     max = 16,
     step = 1
     ) {
-  plots <- list()
-  counter <- 1
-  for (n_neighbors in seq(min, max, step)) {
-    umap_cyto <- uwot::umap(
-      X = data,
-      spread = spread,
-      min_dist = min_dist,
-      n_neighbors = n_neighbors,
-      seed = 123
+
+  # we can handle both quoted and unquoted variables for "groups"
+  groups <- rlang::enquo(groups)
+
+  npx_df <-
+    dplyr::select(
+      .data = data,
+      1,
+      where(is.numeric)
+    ) |>
+    tibble::column_to_rownames(var = colnames(data)[[1]])
+  md <- dplyr::select(.data = data, 1, {{groups}})
+
+  plots <- purrr::map(
+    .x = seq(min, max, step),
+    .f = \(x){
+
+    umap_cyto <-
+      umap::umap(
+        d = npx_df,
+        spread = spread,
+        min_dist = min_dist,
+        n_neighbors = x,
+        seed = 123
+      ) |>
+      purrr::pluck("layout") |>
+      tibble::as_tibble(rownames = colnames(data)[[1]]) |>
+      dplyr::rename(UMAP1 = "V1", UMAP2 = "V2")
+
+    umap_cyto |>
+      dplyr::left_join(md) |>
+      ggplot2::ggplot(
+        mapping =
+          ggplot2::aes(
+            x = UMAP1,
+            y = UMAP2,
+            color = {{groups}}
+          )
+      ) +
+      ggplot2::geom_point(size = 4) +
+      ggplot2::theme_classic() +
+      ggplot2::ggtitle(paste0("n_neighbors = ", x)) +
+      ggplot2::theme(
+        legend.text = ggplot2::element_text(size = 12),
+        axis.text = ggplot2::element_text(size = 12)
       )
-    dat_umap <- umap_cyto$layout %>% data.frame()
-    colnames(dat_umap) <- c("UMAP1", "UMAP2")
-    # graph the umap plot
-    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
-      geom_point(aes(color = groups), size = 4) +
-      theme_classic() +
-      ggtitle(paste0("n_neighbor = ", n_neighbors)) +
-      theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
-    plots[[counter]] <- plot_0
-    counter <- counter + 1
-  }
-  grid.arrange(grobs = plots, ncol = 4)
+  })
+  cowplot::plot_grid(plotlist = plots, ncol = 4)
 }
 
-# Optimization function for spread after n_neighbor parameter has been fixed, by default this function uses min_dist of 0.1
-#' Title
+#
+#' optimize_spread
+#'
+#' @description
+#' Find the optimal value to pass to umap for the spread parameter.  Run after
+#' optimizating the value for n_neighbor.
+#'
 #'
 #' @param data
 #' @param groups
@@ -119,29 +159,77 @@ optimize_n_neighbor <- function(
 #' @param max
 #' @param step
 #'
+#' @importFrom rlang enquo
+#' @importFrom dplyr select rename
+#' @importFrom purrr map pluck
+#' @importFrom tibble as_tibble
+#' @importFrom umap umap
+#' @importFrom ggplot2 ggplot aes geom_point theme_classic ggtitle theme element_text
+#' @importFrom cowplot plot_grid
+#'
 #' @return
 #' @export
 #'
 #' @examples
-optimize_spread <- function(data, groups, n_neighbor, min_dist = 0.1, min = 1, max = 15, step = 1) {
+optimize_spread <- function(
+    data,
+    groups,
+    n_neighbor,
+    min_dist = 0.1,
+    min = 1,
+    max = 15,
+    step = 1
+    ) {
   # spread
-  plots <- list()
-  counter <- 1
-  for (spread in seq(min, max, step)) {
-    umap_cyto <- umap(data, spread = spread, min_dist = min_dist, n_neighbors = n_neighbor, random_state = 123)
-    dat_umap <- umap_cyto$layout %>% data.frame()
-    colnames(dat_umap) <- c("UMAP1", "UMAP2")
-    # graph the umap plot
-    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
-      geom_point(aes(color = groups), size = 4) +
-      theme_classic() +
-      ggtitle(paste0("spread = ", spread)) +
-      theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
-    plots[[counter]] <- plot_0
-    counter <- counter + 1
-  }
-  grid.arrange(grobs = plots, ncol = 4)
+
+  groups <- rlang::enquo(groups)
+
+  npx_df <-
+    dplyr::select(
+      .data = data,
+      1,
+      where(is.numeric)
+    ) |>
+    tibble::column_to_rownames(var = colnames(data)[[1]])
+  md <- dplyr::select(.data = data, 1, {{groups}})
+
+  plots <- purrr::map(
+    .x = seq(min, max, step),
+    .f = \(spread){
+      umap_cyto <-
+        umap::umap(
+          d = npx_df,
+          spread = spread,
+          min_dist = min_dist,
+          n_neighbors = n_neighbor,
+          seed = 123
+        ) |>
+        purrr::pluck("layout") |>
+        tibble::as_tibble(rownames = colnames(data)[[1]]) |>
+        dplyr::rename(UMAP1 = "V1", UMAP2 = "V2")
+
+      umap_cyto |>
+        dplyr::left_join(md) |>
+        ggplot2::ggplot(
+          mapping =
+            ggplot2::aes(
+              x = UMAP1,
+              y = UMAP2,
+              color = {{groups}}
+            )
+        ) +
+        ggplot2::geom_point(size = 4) +
+        ggplot2::theme_classic() +
+        ggplot2::ggtitle(paste0("spread = ", spread)) +
+        ggplot2::theme(
+          legend.text = ggplot2::element_text(size = 12),
+          axis.text = ggplot2::element_text(size = 12)
+        )
+      }
+    )
+cowplot::plot_grid(plotlist = plots, ncol = 4)
 }
+
 
 # The final optimization function that is to fix the min_dist after n_neighbor and spread parameters have been fixed
 #' Title
@@ -154,28 +242,76 @@ optimize_spread <- function(data, groups, n_neighbor, min_dist = 0.1, min = 1, m
 #' @param max
 #' @param step
 #'
+#' @importFrom rlang enquo
+#' @importFrom dplyr select rename
+#' @importFrom purrr map pluck
+#' @importFrom tibble as_tibble
+#' @importFrom umap umap
+#' @importFrom ggplot2 ggplot aes geom_point theme_classic ggtitle theme element_text
+#' @importFrom cowplot plot_grid
+#'
 #' @return
 #' @export
 #'
 #' @examples
-optimize_min_dist <- function(data, groups, spread, n_neighbor, min = 0.01, max = 0.5, step = 0.03) {
-  plots <- list()
-  counter <- 1
-  for (min_dist in seq(min, max, step)) {
-    umap_cyto <- umap(data, spread = spread, min_dist = min_dist, n_neighbors = n_neighbors, random_state = 123)
-    dat_umap <- umap_cyto$layout %>% data.frame()
-    colnames(dat_umap) <- c("UMAP1", "UMAP2")
-    # graph the umap plot
-    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
-      geom_point(aes(color = groups), size = 4) +
-      theme_classic() +
-      ggtitle(paste0("min_dst = ", min_dist)) +
-      theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
-    plots[[counter]] <- plot_0
-    counter <- counter + 1
-  }
-  grid.arrange(grobs = plots, ncol = 4)
+optimize_min_dist <- function(
+    data,
+    groups,
+    spread,
+    n_neighbor,
+    min = 0.01,
+    max = 0.5,
+    step = 0.03
+    ) {
+
+  groups <- rlang::enquo(groups)
+
+  npx_df <-
+    dplyr::select(
+      .data = data,
+      1,
+      where(is.numeric)
+    ) |>
+    tibble::column_to_rownames(var = colnames(data)[[1]])
+  md <- dplyr::select(.data = data, 1, {{groups}})
+
+  plots <- purrr::map(
+    .x = seq(min, max, step),
+    .f = \(min_dist){
+      umap_cyto <-
+        umap::umap(
+          d = npx_df,
+          spread = spread,
+          min_dist = min_dist,
+          n_neighbors = n_neighbor,
+          seed = 123
+        ) |>
+        purrr::pluck("layout") |>
+        tibble::as_tibble(rownames = colnames(data)[[1]]) |>
+        dplyr::rename(UMAP1 = "V1", UMAP2 = "V2")
+
+      umap_cyto |>
+        dplyr::left_join(md) |>
+        ggplot2::ggplot(
+          mapping =
+            ggplot2::aes(
+              x = UMAP1,
+              y = UMAP2,
+              color = {{groups}}
+            )
+        ) +
+        ggplot2::geom_point(size = 4) +
+        ggplot2::theme_classic() +
+        ggplot2::ggtitle(paste0("min_dist = ", min_dist)) +
+        ggplot2::theme(
+          legend.text = ggplot2::element_text(size = 12),
+          axis.text = ggplot2::element_text(size = 12)
+        )
+    }
+  )
+  cowplot::plot_grid(plotlist = plots, ncol = 4)
 }
+
 
 # graph the clean reworked umap
 #' Title
@@ -193,25 +329,127 @@ optimize_min_dist <- function(data, groups, spread, n_neighbor, min = 0.01, max 
 #' @export
 #'
 #' @examples
-pub_UMAP <- function(data, groups, arrow_size = 0.1, pt.size = 3, arrowtip_size = 2, cols = NULL, label = FALSE, label.size = 15) {
-  umap_cyto <- umap(data, spread = 5, min_dist = 0.25, n_neighbors = 9, random_state = 123)
-  dat_umap <- umap_cyto$layout %>% data.frame()
-  colnames(dat_umap) <- c("UMAP1", "UMAP2")
-  # graph the umap plot
-  p <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
-    geom_point(aes(color = groups), size = 4) +
-    theme_void()
-  # y-range
-  yrange <- layer_scales(p)$y$range$range
-  # x-range
-  xrange <- layer_scales(p)$x$range$range
-  p <- p +
-    theme(legend.title = element_blank()) +
-    geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1], yend = yrange[1] + (yrange[2] - yrange[1]) * arrow_size, size = 0.8, arrow = arrow(length = unit(arrowtip_size, "mm"), type = "closed")) +
-    geom_text(aes(x = xrange[1] + 0.2, y = yrange[1], label = "UMAP1"), hjust = 0, vjust = 1, size = 4) +
-    geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1] + (xrange[2] - xrange[1]) * arrow_size, yend = yrange[1], size = 0.8, arrow = arrow(length = unit(arrowtip_size, "mm"), type = "closed")) +
-    geom_text(aes(x = xrange[1] - 0.6, y = yrange[1], label = "UMAP2"), angle = 90, hjust = 0, vjust = 1, size = 4) +
-    guides(colour = guide_legend(ncol = 1, label.theme = element_text(face = "bold", size = label.size), override.aes = list(size = 6))) +
-    ggtitle(label = "")
-  return(p)
+pub_UMAP <- function(
+    data,
+    groups,
+    spread = 5,
+    min_dist = 0.25,
+    n_neighbors = 9,
+    random_state = 123,
+    arrow_size = 0.1,
+    pt.size = 3,
+    arrowtip_size = 2,
+    cols = NULL,
+    label = FALSE,
+    label.size = 15
+    ) {
+
+  groups <- rlang::enquo(groups)
+
+  npx_df <-
+    dplyr::select(
+      .data = data,
+      1,
+      where(is.numeric)
+      ) |>
+    tibble::column_to_rownames(var = colnames(data)[[1]])
+
+  md <- dplyr::select(.data = data, 1, {{groups}})
+
+  umap_cyto <- umap::umap(
+    npx_df,
+    spread = spread,
+    min_dist = min_dist,
+    n_neighbors = n_neighbors,
+    random_state = random_state
+    ) |>
+  purrr::pluck("layout") |>
+  tibble::as_tibble(rownames = colnames(data)[[1]]) |>
+  dplyr::rename(UMAP1 = "V1", UMAP2 = "V2")
+
+  message("Stuff!")
+  p <-
+    umap_cyto |>
+    dplyr::left_join(md) |>
+    ggplot2::ggplot(
+      mapping =
+        ggplot2::aes(
+          x = UMAP1,
+          y = UMAP2,
+          color = {{groups}}
+        )
+    ) +
+    ggplot2::geom_point(size = 4) +
+    ggplot2::theme_classic() +
+    ggplot2::ggtitle(paste0("min_dist = ", min_dist)) +
+    ggplot2::theme(
+      legend.text = ggplot2::element_text(size = 12),
+      axis.text = ggplot2::element_text(size = 12)
+    ) +
+    ggplot2::theme_void()
+
+  yrange <- ggplot2::layer_scales(p)[["y"]][["range"]][["range"]]
+  xrange <- ggplot2::layer_scales(p)[["x"]][["range"]][["range"]]
+
+  p + ggplot2::theme(legend.title = ggplot2::element_blank()) +
+    ggplot2::geom_segment(
+      x = xrange[1],
+      y = yrange[1],
+      xend = xrange[1],
+      yend = yrange[1] + (yrange[2] - yrange[1]) * arrow_size,
+      size = 0.8,
+      arrow = grid::arrow(
+        length = grid::unit(
+          arrowtip_size,
+          "mm"
+          ),
+        type = "closed"
+        )
+      ) +
+    ggplot2::geom_text(
+      ggplot2::aes(
+        x = xrange[1] + 0.2,
+        y = yrange[1],
+        label = "UMAP1"
+        ),
+      hjust = 0,
+      vjust = 1,
+      size = 4
+      ) +
+    ggplot2::geom_segment(
+      x = xrange[1],
+      y = yrange[1],
+      xend = xrange[1] + (xrange[2] - xrange[1]) * arrow_size,
+      yend = yrange[1],
+      size = 0.8,
+      arrow = grid::arrow(
+        length = grid::unit(
+          arrowtip_size,
+          "mm"
+          ),
+        type = "closed"
+        )
+      ) +
+    ggplot2::geom_text(
+      ggplot2::aes(
+        x = xrange[1] - 0.6,
+        y = yrange[1],
+        label = "UMAP2"
+        ),
+      angle = 90,
+      hjust = 0,
+      vjust = 1,
+      size = 4
+      ) +
+    ggplot2::guides(
+      colour = ggplot2::guide_legend(
+        ncol = 1,
+        label.theme = ggplot2::element_text(
+          face = "bold",
+          size = label.size
+          ),
+        override.aes = list(size = 6)
+        )
+      ) +
+    ggplot2::ggtitle(label = "")
 }
