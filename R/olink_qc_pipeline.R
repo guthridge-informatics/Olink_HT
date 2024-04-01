@@ -106,7 +106,7 @@ Olink_Intensity_Norm <- function(data_olink) {
   # calculate ExtNPX based on counts in the Olink parquet file
   data_olink |>
     dplyr::group_by(SampleID, PlateID, Block) |>
-    dplyr::mutate(LogProtExp = ExtNPX + log2(1e5)) #|>
+    dplyr::mutate(LogProtExp = ExtNPX + log2(1e5)) |> 
     dplyr::ungroup()
 }
 
@@ -283,7 +283,7 @@ olink_qc_level1 <- function(npx_file, manifest_file){
                             FUN = function(x) readxl::read_excel(x, range = readxl::cell_cols("A:F")) |> 
                               janitor::clean_names())
     manifest_ref <- dplyr::bind_rows(manifest_read)
-    lapply(single_dat, function(x) project_split(x, manifest = manifest_ref, level = "Level 1"))
+    lapply(single_dat, function(x) project_split(x, manifest = manifest_ref, level = "Level_1"))
     
   } else if (length(npx_file) == 1) {
     message("Single Olink HT run detected")
@@ -383,8 +383,24 @@ olink_qc_level2 <- function(npx_file){
     post_comb_dat <- post_comb(comb_dat)
     
     
+   ## ## attempting normalization via reference medians #########################
+    first_median <- post_comb_dat |> 
+      dplyr::filter(file_name %in% unique(post_comb_dat$file_name)[1]) |> 
+      dplyr::select(OlinkID, LogProtExp) |> 
+      dplyr::group_by(OlinkID) |> 
+      dplyr::summarise(median_ref = median(LogProtExp), .groups = 'drop')
     
-    
+    post_comb_dat <- 
+      post_comb_dat |> 
+      dplyr::group_by(file_name, OlinkID) |> 
+      dplyr::mutate(median_assay = median(LogProtExp)) |> 
+      dplyr::ungroup() |>
+      dplyr::left_join(y = first_median,
+                by = dplyr::join_by("OlinkID" == "OlinkID")) |> 
+      dplyr::mutate(median_diff = median_assay - median_ref) |> 
+      dplyr::mutate(LogProtExp = dplyr::case_when(median_diff >= 0 ~ LogProtExp - median_diff,
+                                    median_diff < 0 ~ LogProtExp + median_diff))
+      
     file_entry <- stringr::str_extract(unique(post_comb_dat$file_name),
                                        "\\d+[-]\\d+[-]\\d+")
     
