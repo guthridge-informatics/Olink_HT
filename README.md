@@ -1,9 +1,8 @@
 # Olink_HT Usage Instructions
 Instructions for Olink HT Level 2 QC using functions from the organized_olink_qc_functions.R script
 
-
-Set the working directory to one containing both raw parquet and internal manifest files  
-1. ``` setwd(desired_directory) ```
+Set the working directory to one containing both raw parquet and internal manifest files   
+1.``` setwd(desired_directory) ```
 
 Initialize the Standard Data Package folder (specified by the Data Standards Document) and check that manifests and parquet files contain the same names  
 2. ```  file_list <-  Olink_Reader(".")   ```
