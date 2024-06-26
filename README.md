@@ -10,7 +10,7 @@ Initialize the Standard Data Package folder (specified by the Data Standards Doc
 Split out the raw parquet files by desired "PROJECT" present in the internal manifest files and write split out files to Level_1 subfolder within SDP  
 3. ```  files_lvl1 <-  Olink_lvl1(olink_files = file_list, proj_names = "PROJECT")   ```
 
-If more than 1 file is present, perform median batch correction between runs 
+If more than 1 file is present, perform median batch correction between runs  
 4.  ```  files_batch_corrected <-  batch_correction(data = files_lvl1$data, method = "median")   ```
 
 Prepare the data for Level 2 (specified by Data Standards Document) QC by evaluating the lower limits of detection and quantification per run  
