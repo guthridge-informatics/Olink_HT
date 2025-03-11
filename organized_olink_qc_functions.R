@@ -262,34 +262,48 @@ Olink_lvl2 <- function(data){
   return(data_lvl2 = data)
 }
 
-##### BATCH CORRECTION AND GRAPHING FUNCTIONS 
-
 # this function automatically graphs the before and post normalization and check for umap of each run
 normalization_check <- function(data_corrected, pt.size = 0.5){
   data_corrected_combined <- 
     data_corrected %>% 
     dplyr::filter(AssayType == "assay" & SampleType == "SAMPLE") %>%
+    na.omit() %>% 
     mutate(ProteinID = paste0(Assay, "_", OlinkID)) %>%
-    dplyr::select(SampleID, PlateID, ProteinID, ExtNPX, ExtNPX_Corrected, LogProtExp_Raw) %>%
+    dplyr::select(SampleID, PlateID, ProteinID, RawExtNPX, ExtNPX_Corrected, LogProtExp_Raw) %>%
     pivot_wider(names_from = ProteinID, values_from = c(ExtNPX, ExtNPX_Corrected, LogProtExp_Raw))
   
-  plot1 <-
-    data_corrected_combined %>%
-    na.omit %>%
-    dplyr::select(contains("ExtNPX")) %>%
-    UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID, n_neighbors = 30, pt.size = pt.size) + ggtitle("Raw ExtNXP")
+  rawextnpx_data <- data_corrected_combined %>% 
+    dplyr::select(contains("RawExtNPX"))
   
-  plot2 <-
-    data_corrected_combined %>%
-    na.omit %>%
-    dplyr::select(contains("ExtNPX_Corrected")) %>%
-    UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID, n_neighbors = 30, pt.size = pt.size) + ggtitle("Batch-corrected ExtNXP")
+  plot1 <- rawextnpx_data %>% 
+    UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
+                n_neighbors = 30,
+                pt.size = pt.size) +
+    ggtitle(paste0("Raw ExtNXP - ",
+                   length(colnames(rawextnpx_data)),
+                   " Proteins Visualized"))
   
-  plot3 <-
-    data_corrected_combined %>%
-    na.omit %>%
-    dplyr::select(contains("LogProtExp_Raw")) %>%
-    UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID, pt.size = pt.size, n_neighbors = 30, min_dist = 1) + ggtitle("Batch-corrected LogProExp")
+  corrextnpx_data <- data_corrected_combined %>% 
+    dplyr::select(contains("ExtNPX_Corrected"))
+  
+  plot2 <- corrextnpx_data %>% 
+    UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
+                n_neighbors = 30,
+                pt.size = pt.size) +
+    ggtitle(paste0("Batch-corrected ExtNXP - ", 
+                   length(colnames(corrextnpx_data)), 
+                   " Proteins Visualized"))
+
+  logprotexp_data <- data_corrected_combined %>% 
+    dplyr::select(contains("LogProtExp_Raw"))
+  
+  plot3 <- logprotexp_data %>% 
+    UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
+                pt.size = pt.size,
+                n_neighbors = 30) + 
+    ggtitle(paste0("Batch-corrected LogProtExp - ", 
+                   length(colnames(logprotexp_data)), 
+                   " Proteins Visualized"))
   
   return(list(plot1 = plot1, plot2 = plot2, plot3 = plot3))
 }
