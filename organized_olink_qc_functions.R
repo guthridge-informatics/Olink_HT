@@ -108,14 +108,15 @@ Olink_lvl1 <- function(olink_files, proj_names){
   return(list(data = data_filtered, manifest = manifest_filtered))
 }
 
-## Batch Correction Process (For Multi-Plate Studies only)
+
+# This function tallies the number of failed and passed assay and samples per each 96-well plate
 Olink_QC <- function(data) {
   table_assay <- 
     data %>%
     dplyr::filter(AssayType == "assay") %>% # filter for only assays instead of all extension, plate controls
     dplyr::group_by(PlateID, OlinkID, AssayQC) %>% # group by PlateID and OlinkID to get the split among the Assay QC
     tally %>% # tabulate the counts
-    ungroup %>% # this is to allow the ungrouping of the tibble and return to original tibble without grouping
+    ungroup %>% # this is to allow the ungrouping of the tibble and return to orignal tibble without grouping
     dplyr::group_by(PlateID, AssayQC) %>% # grouping to allow tabulation of assays
     tally
   
@@ -129,7 +130,7 @@ Olink_QC <- function(data) {
   return(list(AssayOlinkQC = table_assay, SampleOlinkQC = table_sample))
 }
 
-# Calculate the median and variance of each plate controls on a 384-well plate for each run
+# Calculating the default plate control batch correction
 ctrl_ref <- function(data) {
   ref <-
     data %>%
@@ -140,7 +141,18 @@ ctrl_ref <- function(data) {
   return(ref)
 }
 
-# This function batch correct the 
+# To be used for Studies where proper randomization can be verified or where plate controls cannot be used for normalization
+global_ref <- function(data) {
+  ref <-
+    data %>%
+    dplyr::filter(SampleType == "SAMPLE" & AssayType == "assay") %>% # filter down to just the samples and the assay
+    dplyr::group_by(OlinkID) %>% # grouped it by just the OlinkID
+    dplyr::summarise(Median = median(na.omit(ExtNPX)), # calculate the median
+                     Variance = var(na.omit(ExtNPX))) # calculate variance
+  return(ref)
+}
+
+# This function takes either global or plate control median frames and applies differences
 median_correction <- function(data, Meds){
   # calculate the medians for each 384-well plate 
   ref_med <- 
@@ -167,9 +179,13 @@ batch_correction <- function(data, method = "median"){
   if (method == "median"){
     Meds <- lapply(data, FUN = ctrl_ref)
     data_corrected <- median_correction(data, Meds)
+  } else if (method == "global median"){
+    Meds <- lapply(data, FUN = global_ref)
+    data_corrected <- median_correction(data, Meds)
   }
   return(data_corrected)
 }
+
 
 ## Level 2 QC Part 1
 Olink_lvl2_prep <- function(data){
@@ -188,7 +204,7 @@ Olink_lvl2_prep <- function(data){
   ht_pc_vals <- data %>% 
     filter(SampleType == "PLATE_CONTROL") %>% 
     group_by(Assay, OlinkID) %>% 
-    summarise(pc_cv = 100*sd(LogProtExp)/mean(LogProtExp), .groups = 'drop') %>% 
+    summarise(pc_cv = 100*sd(LogProtExp_Raw)/mean(LogProtExp_Raw), .groups = 'drop') %>% 
     mutate(high_var_assay = case_when(pc_cv > 20 ~ "High Variance",
                                       T ~ "Pass")) %>% 
     select(-pc_cv)
@@ -248,71 +264,7 @@ Olink_lvl2 <- function(data){
 
 ##### BATCH CORRECTION AND GRAPHING FUNCTIONS 
 
-# This function tallies the number of failed and passed assay and samples per each 96-well plate
-Olink_QC <- function(data) {
-  table_assay <- 
-    data %>%
-    dplyr::filter(AssayType == "assay") %>% # filter for only assays instead of all extension, plate controls
-    dplyr::group_by(PlateID, OlinkID, AssayQC) %>% # group by PlateID and OlinkID to get the split among the Assay QC
-    tally %>% # tabulate the counts
-    ungroup %>% # this is to allow the ungrouping of the tibble and return to orignal tibble without grouping
-    dplyr::group_by(PlateID, AssayQC) %>% # grouping to allow tabulation of assays
-    tally
-  
-  table_sample <- 
-    data %>%
-    dplyr::filter(SampleType == "SAMPLE") %>% # filter for only assays instead of all extension, plate controls
-    dplyr::group_by(PlateID, SampleID, SampleQC) %>% # group by PlateID and OlinkID to get the split among the Assay QC
-    tally %>% # tabulate the counts
-    mutate(Frequency = prop.table(n)) # calculate the frequencies within each sample
-  
-  return(list(AssayOlinkQC = table_assay, SampleOlinkQC = table_sample))
-}
-
-
-ctrl_ref <- function(data) {
-  ref <-
-    data %>%
-    dplyr::filter(SampleType == "PLATE_CONTROL" & AssayType == "assay") %>% # filter down to just the plate controls and the assay
-    dplyr::group_by(OlinkID) %>% # grouped it by just the OlinkID
-    summarise(Median = median(na.omit(ExtNPX)), # calculate the median
-              Variance = var(na.omit(ExtNPX))) # calculate variance
-  return(ref)
-}
-
-# This function batch correct the 
-median_correction <- function(data, Meds){
-  # calculate the medians for each 384-well plate 
-  ref_med <- 
-    Reduce(function(x, y) left_join(x, y, by = "OlinkID"), Meds) %>% # left join all the run median and variance per each run
-    dplyr::select(contains("Median")) %>%  # filter only the median column names
-    apply(1, mean) %>% # calculate the mean of all medians to scale it to it
-    data.frame(OlinkID = Meds[[1]]$OlinkID, ReferenceMedian = .) # make a resulting data frame that contains the OlinkID and the reference median
-  
-  Meds_correction <- 
-    lapply(Meds, FUN = function(x) left_join(x, ref_med)) %>%
-    lapply(FUN = function(x) mutate(x, Correction = Median - ReferenceMedian))
-  
-  data_correction <-
-    mapply(function(x, y) {left_join(x, y, by = "OlinkID")}, 
-           x = data, 
-           y = Meds_correction, 
-           SIMPLIFY = FALSE) %>%
-    lapply(FUN = function(x) mutate(x, ExtNPX_Corrected = ExtNPX - Correction))
-  return(data_correction)  
-}
-
-# This is the main routing function for the batch correction and normalization
-batch_correction <- function(data, method = "median"){
-  if (method == "median"){
-    Meds <- lapply(data, FUN = ctrl_ref)
-    data_corrected <- median_correction(data, Meds)
-  }
-  return(data_corrected)
-}
-
-# this function automatically graphcs the before and post normalization and check for umap of each run
-
+# this function automatically graphs the before and post normalization and check for umap of each run
 normalization_check <- function(data_corrected, pt.size = 0.5){
   data_corrected_combined <- 
     data_corrected %>% 
