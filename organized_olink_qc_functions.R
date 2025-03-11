@@ -227,7 +227,6 @@ Olink_lvl2 <- function(data){
   ht_scaled_npx_assay <- data %>% 
     group_by(Assay, OlinkID, sample_level_qc) %>%
     summarise(percentage = 100*n()/n_samples, .groups = 'drop') %>%
-    filter(sample_level_qc %in% c("Below LLOD", "Below LLOQ")) %>% 
     pivot_wider(., names_from = sample_level_qc, values_from = percentage) %>% 
     mutate(`Below LLOD` = case_when(is.na(`Below LLOD`) == T ~ 0,
                                     T ~ `Below LLOD`),
@@ -237,7 +236,7 @@ Olink_lvl2 <- function(data){
     mutate(assay_level_qc = case_when(`Below LLOD` > 75 ~ "Categorical",
                                       `Below LLOQ` > 50 ~ "Semi-Continuous",
                                       T ~ "Continuous")) %>% 
-    select(-c(`Below LLOD`, `Below LLOQ`))
+    dplyr::select(-c(`Below LLOD`, `Below LLOQ`))
   
   data <- left_join(data, dplyr::select(ht_scaled_npx_assay, OlinkID, assay_level_qc), by = "OlinkID")
   
