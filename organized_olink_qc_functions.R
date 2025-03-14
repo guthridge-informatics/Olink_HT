@@ -16,10 +16,10 @@ require(readxl)
 # Misc function to read in multiple files into a list and name them based on the file name without file extension
 Multifile_read <- function(directory, file_extension) {
   files_run <- list.files(directory) %>% # list all files within the given directory
-    str_extract(string = ., 
+    str_extract(string = .,
                 pattern = paste0(".*", file_extension)) %>%
     na.omit %>% # only extract files with the provided file extension
-    as.character() 
+    as.character()
      # omit empty rows
   if (file_extension == "parquet") {
     data <- lapply(X = files_run, FUN = read_parquet)
@@ -60,7 +60,7 @@ Multifile_write <- function(data, file_extension) {
 Olink_Reader <- function(directory){
   # Defining the directory all Olink data is stored in
   setwd(directory) # Need to set the working directory to such or else subsequent code will not work
-  
+
   # make sub-directory for SDP hiearchical file structure
   dirs = c(
     root = paste0(directory,"/SDP"), # root directory for SDP
@@ -69,12 +69,12 @@ Olink_Reader <- function(directory){
     code = paste0(directory, "/SDP/code")
   )
   lapply(X = dirs, function(i) dir.create(path = i))
-  
+
   # Extract all .parquet files within the directory and read into a list of data frames
   data <- Multifile_read(directory, "parquet")
   # Extract all .csv files within the directory and read into a list of data frames that corresponding to the sample manifest of each OLINK Explore HT run
   manifest <- Multifile_read(directory, "xlsx")
-  
+
   # Return parquet files
   return(list(data = data, manifest = manifest))
 }
@@ -91,7 +91,7 @@ Olink_lvl1 <- function(olink_files, proj_names){
         dplyr::filter(x, Project %in% proj_names)
     ) # filter the manifest file by the project names first
   Multifile_write(data = manifest_filtered, file_extension = "csv") # write the SMDs
-  
+
   # filter the current raw data by only selecting the sample only pertaining to the project names
   data_filtered <-
     lapply(
@@ -111,7 +111,7 @@ Olink_lvl1 <- function(olink_files, proj_names){
 
 # This function tallies the number of failed and passed assay and samples per each 96-well plate
 Olink_QC <- function(data) {
-  table_assay <- 
+  table_assay <-
     data %>%
     dplyr::filter(AssayType == "assay") %>% # filter for only assays instead of all extension, plate controls
     dplyr::group_by(PlateID, OlinkID, AssayQC) %>% # group by PlateID and OlinkID to get the split among the Assay QC
@@ -119,14 +119,14 @@ Olink_QC <- function(data) {
     ungroup %>% # this is to allow the ungrouping of the tibble and return to orignal tibble without grouping
     dplyr::group_by(PlateID, AssayQC) %>% # grouping to allow tabulation of assays
     tally
-  
-  table_sample <- 
+
+  table_sample <-
     data %>%
     dplyr::filter(SampleType == "SAMPLE") %>% # filter for only assays instead of all extension, plate controls
     dplyr::group_by(PlateID, SampleID, SampleQC) %>% # group by PlateID and OlinkID to get the split among the Assay QC
     tally %>% # tabulate the counts
     mutate(Frequency = prop.table(n)) # calculate the frequencies within each sample
-  
+
   return(list(AssayOlinkQC = table_assay, SampleOlinkQC = table_sample))
 }
 
@@ -154,24 +154,24 @@ global_ref <- function(data) {
 
 # This function takes either global or plate control median frames and applies differences
 median_correction <- function(data, Meds){
-  # calculate the medians for each 384-well plate 
-  ref_med <- 
+  # calculate the medians for each 384-well plate
+  ref_med <-
     Reduce(function(x, y) left_join(x, y, by = "OlinkID"), Meds) %>% # left join all the run median and variance per each run
     dplyr::select(contains("Median")) %>%  # filter only the median column names
     apply(1, mean) %>% # calculate the mean of all medians to scale it to it
     data.frame(OlinkID = Meds[[1]]$OlinkID, ReferenceMedian = .) # make a resulting data frame that contains the OlinkID and the reference median
-  
-  Meds_correction <- 
+
+  Meds_correction <-
     lapply(Meds, FUN = function(x) left_join(x, ref_med)) %>%
     lapply(FUN = function(x) mutate(x, Correction = Median - ReferenceMedian))
-  
+
   data_correction <-
-    mapply(function(x, y) {left_join(x, y, by = "OlinkID")}, 
-           x = data, 
-           y = Meds_correction, 
+    mapply(function(x, y) {left_join(x, y, by = "OlinkID")},
+           x = data,
+           y = Meds_correction,
            SIMPLIFY = FALSE) %>%
     lapply(FUN = function(x) mutate(x, ExtNPX_Corrected = ExtNPX - Correction))
-  return(data_correction)  
+  return(data_correction)
 }
 
 # This is the main routing function for the batch correction and normalization
@@ -189,74 +189,74 @@ batch_correction <- function(data, method = "median"){
 
 ## Level 2 QC Part 1
 Olink_lvl2_prep <- function(data){
-  data <- 
+  data <-
     data %>%
     mutate(LogProtExp = ExtNPX_Corrected + log2(1e5)) %>% # transform into LogProExp
     mutate(LogProtExp_Raw = ExtNPX_Corrected + log2(1e5)) # transform into LogProExp
-  
-  ht_nc_vals <- data %>% 
-    filter(SampleType == "NEGATIVE_CONTROL") %>% 
-    group_by(Assay, OlinkID) %>% 
+
+  ht_nc_vals <- data %>%
+    filter(SampleType == "NEGATIVE_CONTROL") %>%
+    group_by(Assay, OlinkID) %>%
     summarise(median_nc = median(na.omit(LogProtExp)),
-              iqr_nc = as.numeric(quantile(na.omit(LogProtExp), 0.75)), .groups = 'drop') 
-  
+              iqr_nc = as.numeric(quantile(na.omit(LogProtExp), 0.75)), .groups = 'drop')
+
   # Calculating Plate Control coefficient of variance
-  ht_pc_vals <- data %>% 
-    filter(SampleType == "PLATE_CONTROL") %>% 
-    group_by(Assay, OlinkID) %>% 
-    summarise(pc_cv = 100*sd(LogProtExp_Raw)/mean(LogProtExp_Raw), .groups = 'drop') %>% 
+  ht_pc_vals <- data %>%
+    filter(SampleType == "PLATE_CONTROL") %>%
+    group_by(Assay, OlinkID) %>%
+    summarise(pc_cv = 100*sd(LogProtExp_Raw)/mean(LogProtExp_Raw), .groups = 'drop') %>%
     mutate(high_var_assay = case_when(pc_cv > 20 ~ "High Variance",
-                                      T ~ "Pass")) %>% 
+                                      T ~ "Pass")) %>%
     select(-pc_cv)
-  
+
   # This is the "sample level" qc, calculates ith sample in jth assay that needs to be replaced with zero or LLOQ
   # also labels those values in a new column - sample_level_qc
-  ht_scaled_npx_sample <- data %>% 
-    filter(SampleType == "SAMPLE") %>% 
-    left_join(., ht_nc_vals, by = c("Assay", "OlinkID")) %>% 
-    left_join(., ht_pc_vals, by = c("Assay", "OlinkID")) %>% 
+  ht_scaled_npx_sample <- data %>%
+    filter(SampleType == "SAMPLE") %>%
+    left_join(., ht_nc_vals, by = c("Assay", "OlinkID")) %>%
+    left_join(., ht_pc_vals, by = c("Assay", "OlinkID")) %>%
     mutate(sample_level_qc = case_when(LogProtExp < median_nc ~ "Below LLOD",
                                        LogProtExp < iqr_nc ~ "Below LLOQ",
-                                       T ~ "Pass")) %>% 
+                                       T ~ "Pass")) %>%
     mutate(LogProtExp = case_when(LogProtExp < median_nc ~ 0,
                                   LogProtExp < iqr_nc ~ iqr_nc,
-                                  T ~ LogProtExp)) 
+                                  T ~ LogProtExp))
   return(ht_scaled_npx_sample)
 }
 
 ## Level 2 QC Part 2
 Olink_lvl2 <- function(data){
   # concatenate all the data together
-  
+
   data <- Reduce(function(x, y) rbind(x, y), data)
-  
+
   # specifying number of samples present in the total combined dataset
-  n_samples <- data %>% 
+  n_samples <- data %>%
     group_by(SampleID) %>%
-    summarise() %>% 
+    summarise() %>%
     nrow()
-  
-  
+
+
   # Assay level QC - if 50% of samples are below LLOQ, labeled as semi-continuous
   # if 75% of samples are below LLOD, labeled as categorical
   # Test to adjust how I calculate categorical, semi-continuous, or continuous
-  ht_scaled_npx_assay <- data %>% 
+  ht_scaled_npx_assay <- data %>%
     group_by(Assay, OlinkID, sample_level_qc) %>%
     summarise(percentage = 100*n()/n_samples, .groups = 'drop') %>%
-    pivot_wider(., names_from = sample_level_qc, values_from = percentage) %>% 
+    pivot_wider(., names_from = sample_level_qc, values_from = percentage) %>%
     mutate(`Below LLOD` = case_when(is.na(`Below LLOD`) == T ~ 0,
                                     T ~ `Below LLOD`),
            `Below LLOQ` = case_when(is.na(`Below LLOQ`) == T ~ 0,
-                                    T ~ `Below LLOQ`)) %>% 
-    mutate(`Below LLOQ` = `Below LLOQ` + `Below LLOD`) %>% 
+                                    T ~ `Below LLOQ`)) %>%
+    mutate(`Below LLOQ` = `Below LLOQ` + `Below LLOD`) %>%
     mutate(assay_level_qc = case_when(`Below LLOD` > 75 ~ "Categorical",
                                       `Below LLOQ` > 50 ~ "Semi-Continuous",
-                                      T ~ "Continuous")) %>% 
+                                      T ~ "Continuous")) %>%
     dplyr::select(-c(`Below LLOD`, `Below LLOQ`))
-  
+
   data <- left_join(data, dplyr::select(ht_scaled_npx_assay, OlinkID, assay_level_qc), by = "OlinkID")
-  
-  
+
+
 
   arrow::write_parquet(data, sink = paste0("SDP/Level_2/Level 2 SDP.parquet")) # write the parquet files of the level 2
   return(data_lvl2 = data)
@@ -264,47 +264,48 @@ Olink_lvl2 <- function(data){
 
 # this function automatically graphs the before and post normalization and check for umap of each run
 normalization_check <- function(data_corrected, pt.size = 0.5){
-  data_corrected_combined <- 
-    data_corrected %>% 
+  data_corrected_combined <-
+    data_corrected %>%
     dplyr::filter(AssayType == "assay" & SampleType == "SAMPLE") %>%
-    na.omit() %>% 
+    na.omit() %>%
+    rename("RawExtNPX" = "ExtNPX") %>%
     mutate(ProteinID = paste0(Assay, "_", OlinkID)) %>%
     dplyr::select(SampleID, PlateID, ProteinID, RawExtNPX, ExtNPX_Corrected, LogProtExp_Raw) %>%
     pivot_wider(names_from = ProteinID, values_from = c(ExtNPX, ExtNPX_Corrected, LogProtExp_Raw))
-  
-  rawextnpx_data <- data_corrected_combined %>% 
+
+  rawextnpx_data <- data_corrected_combined %>%
     dplyr::select(contains("RawExtNPX"))
-  
-  plot1 <- rawextnpx_data %>% 
+
+  plot1 <- rawextnpx_data %>%
     UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
                 n_neighbors = 30,
                 pt.size = pt.size) +
     ggtitle(paste0("Raw ExtNXP - ",
                    length(colnames(rawextnpx_data)),
                    " Proteins Visualized"))
-  
-  corrextnpx_data <- data_corrected_combined %>% 
+
+  corrextnpx_data <- data_corrected_combined %>%
     dplyr::select(contains("ExtNPX_Corrected"))
-  
-  plot2 <- corrextnpx_data %>% 
+
+  plot2 <- corrextnpx_data %>%
     UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
                 n_neighbors = 30,
                 pt.size = pt.size) +
-    ggtitle(paste0("Batch-corrected ExtNXP - ", 
-                   length(colnames(corrextnpx_data)), 
+    ggtitle(paste0("Batch-corrected ExtNXP - ",
+                   length(colnames(corrextnpx_data)),
                    " Proteins Visualized"))
 
-  logprotexp_data <- data_corrected_combined %>% 
+  logprotexp_data <- data_corrected_combined %>%
     dplyr::select(contains("LogProtExp_Raw"))
-  
-  plot3 <- logprotexp_data %>% 
+
+  plot3 <- logprotexp_data %>%
     UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
                 pt.size = pt.size,
-                n_neighbors = 30) + 
-    ggtitle(paste0("Batch-corrected LogProtExp - ", 
-                   length(colnames(logprotexp_data)), 
+                n_neighbors = 30) +
+    ggtitle(paste0("Batch-corrected LogProtExp - ",
+                   length(colnames(logprotexp_data)),
                    " Proteins Visualized"))
-  
+
   return(list(plot1 = plot1, plot2 = plot2, plot3 = plot3))
 }
 
@@ -329,23 +330,23 @@ vst_to_pca <- function(data, exclude = ""){
     variance <- apply(X = data, MARGIN = 2, var)
   }
   # create the data_vst data frame that contains mean and variances
-  data_vst <- data.frame(Assay = colnames(data), 
+  data_vst <- data.frame(Assay = colnames(data),
                          Mean = mean,
                          Variance = variance)
-  
+
   # plot the scatter plots of the mean and variance of each protein
   fit_lowess <- loess(Variance ~ Mean, data_vst, span = 0.2)
-  
+
   # graph the loess function in the plot of mean vs variance
   plot <-
     ggplot(data = data_vst, aes(x = Mean, y = Variance)) +
     geom_point() +
     geom_smooth(method = loess, formula = y ~ x, lty = 2, method.args = list(span = 0.2)) +
     theme_classic()
-  
-  # add predicted variance 
+
+  # add predicted variance
   data_vst$PredictedVar <- predict(fit_lowess, data_vst$Mean)
-  
+
   # add difference score above the predicted means
   data_vst$Diff <- data_vst$Variance - data_vst$PredictedVar
   return(list(data_vst = data_vst, plot = plot))
@@ -358,8 +359,8 @@ pca_to_umap <- function(data){
   # get PCA importance from the principal component analysis
   res_pca <- summary(pca)$importance %>% t() %>% data.frame %>% mutate(PCs = c(1:nrow(.)))
   n_pca <- find_curve_elbow(data_frame = res_pca[, c("PCs", "Proportion.of.Variance")], plot_curve = TRUE)
-  pca <- 
-    pca$x[, c(1:n_pca)] %>% 
+  pca <-
+    pca$x[, c(1:n_pca)] %>%
     data.frame()
   return(pca)
 }
@@ -376,9 +377,9 @@ optimize_n_neighbor <- function(data, groups, spread = 10, min_dist = 0.1, min =
     dat_umap <- umap_cyto$layout %>% data.frame()
     colnames(dat_umap) <- c("UMAP1", "UMAP2")
     # graph the umap plot
-    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) + 
+    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
       geom_point(aes(color = groups), size = 4) +
-      theme_classic() + 
+      theme_classic() +
       ggtitle(paste0("n_neighbor = ", n_neighbors)) +
       theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
     plots[[counter]] <- plot_0
@@ -400,9 +401,9 @@ optimize_spread <- function(data, groups, n_neighbor, min_dist = 0.1, min = 1, m
     dat_umap <- umap_cyto$layout %>% data.frame()
     colnames(dat_umap) <- c("UMAP1", "UMAP2")
     # graph the umap plot
-    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) + 
+    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
       geom_point(aes(color = groups), size = 4) +
-      theme_classic() + 
+      theme_classic() +
       ggtitle(paste0("spread = ", spread)) +
       theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
     plots[[counter]] <- plot_0
@@ -423,9 +424,9 @@ optimize_min_dist <- function(data, groups, spread, n_neighbor, min = 0.01, max 
     dat_umap <- umap_cyto$layout %>% data.frame()
     colnames(dat_umap) <- c("UMAP1", "UMAP2")
     # graph the umap plot
-    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) + 
+    plot_0 <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
       geom_point(aes(color = groups), size = 4) +
-      theme_classic() + 
+      theme_classic() +
       ggtitle(paste0("min_dst = ", min_dist)) +
       theme(legend.text = element_text(size = 12), axis.text = element_text(size = 12))
     plots[[counter]] <- plot_0
@@ -442,22 +443,22 @@ UMAP_snn <- function(data, k = NA, eps = 7, minPts = 10, arrow_size = 0.1, pt.si
   umap_cyto <- umap(data, spread = spread, min_dist = min_dist, n_neighbors = n_neighbors, random_state = 123)
   dat_umap <- umap_cyto$layout %>% data.frame()
   colnames(dat_umap) <- c("UMAP1", "UMAP2")
-  
+
   # sNN clustering the UMAP coordinates
   if (is.na(k)) {
     k = nrow(dat_umap)/10
   }
   groups <- as.factor(sNNclust(dat_umap, k = k, eps = eps, minPts = minPts)$cluster)
-  
+
   # graph the umap plot
-  p <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) + 
+  p <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
     geom_point(aes(color = groups), size = 4) +
-    theme_void() 
+    theme_void()
   # y-range
   yrange = layer_scales(p)$y$range$range
   # x-range
   xrange = layer_scales(p)$x$range$range
-  p <- p + 
+  p <- p +
     guides(fill = guide_legend(title = paste0("k = ", k))) +
     theme(legend.title = element_blank()) +
     geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1], yend = yrange[1] + (yrange[2]-yrange[1])*arrow_size, size = 0.8, arrow = arrow(length = unit(arrowtip_size,"mm"), type = "closed")) +
@@ -477,16 +478,16 @@ UMAP_groups <- function(data, groups, eps = 7, minPts = 10, arrow_size = 0.1, pt
   umap_cyto <- umap(data, spread = spread, min_dist = min_dist, n_neighbors = n_neighbors, random_state = 123)
   dat_umap <- umap_cyto$layout %>% data.frame()
   colnames(dat_umap) <- c("UMAP1", "UMAP2")
-  
+
   # graph the umap plot
-  p <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) + 
+  p <- ggplot(data = dat_umap, aes(x = UMAP1, y = UMAP2)) +
     geom_point(aes(color = groups), size = 4) +
-    theme_void() 
+    theme_void()
   # y-range
   yrange = layer_scales(p)$y$range$range
   # x-range
   xrange = layer_scales(p)$x$range$range
-  p <- p + 
+  p <- p +
     theme(legend.title = element_blank()) +
     geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1], yend = yrange[1] + (yrange[2]-yrange[1])*arrow_size, size = 0.8, arrow = arrow(length = unit(arrowtip_size,"mm"), type = "closed")) +
     geom_text(aes(x = xrange[1] + (xrange[2] - xrange[1])*0.01, y = yrange[1], label = "UMAP1"), hjust = 0, vjust = 1, size = 4) +
@@ -500,14 +501,14 @@ UMAP_groups <- function(data, groups, eps = 7, minPts = 10, arrow_size = 0.1, pt
 # graphing pretty umap graph
 graph_UMAP <- function(data_umap, groups, arrow_size = 0.1, pt.size = 0.5, arrowtip_size = 2, cols = NULL, label = FALSE, label.size = 15) {
   # graph the umap plot
-  p <- ggplot(data = data_umap, aes(x = UMAP1, y = UMAP2)) + 
+  p <- ggplot(data = data_umap, aes(x = UMAP1, y = UMAP2)) +
     geom_point(aes(color = as.factor(groups)), size = 0.5) +
-    theme_void() 
+    theme_void()
   # y-range
   yrange = layer_scales(p)$y$range$range
   # x-range
   xrange = layer_scales(p)$x$range$range
-  p <- p + 
+  p <- p +
     theme(legend.title = element_blank()) +
     geom_segment(x = xrange[1], y = yrange[1], xend = xrange[1], yend = yrange[1] + (yrange[2]-yrange[1])*arrow_size, size = 0.8, arrow = arrow(length = unit(arrowtip_size,"mm"), type = "closed")) +
     geom_text(aes(x = xrange[1] + (xrange[2] - xrange[1])*0.01, y = yrange[1], label = "UMAP1"), hjust = 0, vjust = 1, size = 4) +
