@@ -267,16 +267,17 @@ normalization_check <- function(data_corrected, pt.size = 0.5){
   data_corrected_combined <-
     data_corrected %>%
     dplyr::filter(AssayType == "assay" & SampleType == "SAMPLE") %>%
-    na.omit() %>%
     rename("RawExtNPX" = "ExtNPX") %>%
     mutate(ProteinID = paste0(Assay, "_", OlinkID)) %>%
     dplyr::select(SampleID, PlateID, ProteinID, RawExtNPX, ExtNPX_Corrected, LogProtExp_Raw) %>%
-    pivot_wider(names_from = ProteinID, values_from = c(ExtNPX, ExtNPX_Corrected, LogProtExp_Raw))
+    na.omit() %>%
+    pivot_wider(names_from = ProteinID, values_from = c(RawExtNPX, ExtNPX_Corrected, LogProtExp_Raw))
 
   rawextnpx_data <- data_corrected_combined %>%
     dplyr::select(contains("RawExtNPX"))
 
   plot1 <- rawextnpx_data %>%
+    na.omit() %>%
     UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
                 n_neighbors = 30,
                 pt.size = pt.size) +
@@ -288,10 +289,11 @@ normalization_check <- function(data_corrected, pt.size = 0.5){
     dplyr::select(contains("ExtNPX_Corrected"))
 
   plot2 <- corrextnpx_data %>%
+    na.omit() %>%
     UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
                 n_neighbors = 30,
                 pt.size = pt.size) +
-    ggtitle(paste0("Batch-corrected ExtNXP - ",
+    ggtitle(paste0("Batch-corrected ExtNPX - ",
                    length(colnames(corrextnpx_data)),
                    " Proteins Visualized"))
 
@@ -299,6 +301,7 @@ normalization_check <- function(data_corrected, pt.size = 0.5){
     dplyr::select(contains("LogProtExp_Raw"))
 
   plot3 <- logprotexp_data %>%
+    na.omit() %>%
     UMAP_groups(groups = na.omit(data_corrected_combined)$PlateID,
                 pt.size = pt.size,
                 n_neighbors = 30) +
